@@ -1,0 +1,10 @@
+streamlit
+streamlit-drawable-canvas
+numpy
+pandas
+Pillow
+matplotlib
+torch
+torchvision
+scikit-image
+fpdf

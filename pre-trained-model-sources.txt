@@ -1,0 +1,4 @@
+Main model: https://github.com/zhangted/py-ceph/blob/main/README.md
+
+
+HRNet model: https://huggingface.co/cwlachap/hrnet-cephalometric-landmark-detection/tree/main
