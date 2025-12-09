@@ -1,12 +1,4 @@
 import streamlit as st
-import streamlit.elements.image as st_image
-from streamlit.elements.lib.image_utils import image_to_url
-
-# --- PATCH: Fix for streamlit-drawable-canvas 1.34+ ---
-if not hasattr(st_image, 'image_to_url'):
-    st_image.image_to_url = image_to_url
-# --------------------------------------------------------
-
 import numpy as np
 import os
 import pandas as pd
@@ -16,6 +8,7 @@ from streamlit_drawable_canvas import st_canvas
 from fpdf import FPDF
 import tempfile
 import datetime
+import base64  # Added for the fix
 
 # Project Imports
 from src.pyceph.inference import load_model, process_image
@@ -95,13 +88,26 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. STATE MANAGEMENT
+# 2. HELPER FUNCTIONS (The Fix)
+# ==========================================
+def pil_to_base64(image):
+    """
+    Converts a PIL Image to a base64 string.
+    This bypasses streamlit's internal image_to_url which causes version conflicts.
+    """
+    buffered = BytesIO()
+    image.save(buffered, format="PNG")
+    img_str = base64.b64encode(buffered.getvalue()).decode()
+    return f"data:image/png;base64,{img_str}"
+
+# ==========================================
+# 3. STATE MANAGEMENT
 # ==========================================
 keys = [
     'uploaded_file_bytes', 'high_res_pil', 'display_pil', 'scale_ratio',
     'ai_landmarks', 'px_per_mm', 'measurements', 'click_history', 
     'ruler_points', 'temp_angle_points', 'canvas_key', 'final_result',
-    'is_calibrated', 'pdf_bytes' 
+    'is_calibrated', 'pdf_bytes', 'original_dims' # Added original_dims
 ]
 for k in keys:
     if k not in st.session_state:
@@ -115,7 +121,7 @@ for k in keys:
         else: st.session_state[k] = None
 
 # ==========================================
-# 3. CORE LOGIC
+# 4. CORE LOGIC
 # ==========================================
 DIAGNOSTIC_NORMS = {
     "Parameter": [
@@ -139,7 +145,7 @@ def get_model():
 def process_and_cache_images(file_bytes):
     """Scientific Processing with Padding and Labeling."""
     model = get_model()
-    if not model: return None, None, None, None
+    if not model: return None, None, None, None, None
     
     # A. Inference
     raw_img, raw_marks = process_image(BytesIO(file_bytes), model)
@@ -180,7 +186,7 @@ def process_and_cache_images(file_bytes):
     display_pil = high_res_pil.resize((DISPLAY_WIDTH, display_h), Image.LANCZOS)
     scale_ratio = MAX_CANVAS_SIZE[0] / DISPLAY_WIDTH
     
-    return high_res_pil, display_pil, scale_ratio, high_res_marks
+    return high_res_pil, display_pil, scale_ratio, high_res_marks, (w_raw, h_raw)
 
 def dist_euclidean(p1, p2):
     return np.sqrt((p2[0]-p1[0])**2 + (p2[1]-p1[1])**2)
@@ -291,7 +297,7 @@ def generate_pdf_report(image_pil, measurements, prediction, user_info):
     return pdf.output(dest='S').encode('latin-1', errors='replace')
 
 # ==========================================
-# 4. MAIN UI LAYOUT
+# 5. MAIN UI LAYOUT
 # ==========================================
 st.title("🦷 OSA [Obstructive Sleep Apnea] Analyzer")
 
@@ -302,7 +308,6 @@ with st.expander("ℹ️ Instructions & Help"):
     2. **Calibrate:** Use the 'Calibrate Ruler' tool to click two points on the image's ruler (usually 10mm). This is auto-calibrated to 11.53 px/mm by default. You can use that and adjust manually as per need.
     3. **Measure:** Use 'Measure Distance' and/or 'Measure Angle' to analyze anatomy. Make sure that you label S-N, Po-Or, PAS, Pharynx Length, MP-H, etc. as per the norms table.
     4. **Report:** Click 'Analyze' to get an OSA prediction and download a PDF report.
-
     """)
 
 # --- ROW 1: UPLOADS ---
@@ -325,11 +330,12 @@ if uploaded:
         st.session_state.pdf_bytes = None
         
         with st.spinner("Processing..."):
-            hr, disp, ratio, lms = process_and_cache_images(uploaded.getvalue())
+            hr, disp, ratio, lms, dims = process_and_cache_images(uploaded.getvalue())
             st.session_state.high_res_pil = hr
             st.session_state.display_pil = disp
             st.session_state.scale_ratio = ratio
             st.session_state.ai_landmarks = lms
+            st.session_state.original_dims = dims
             st.rerun()
 
 # --- WORKSPACE ---
@@ -429,9 +435,12 @@ if st.session_state.display_pil:
         if "Calibrate" in mode: st.info("Click 2 points on the ruler.")
         elif "Distance" in mode: st.info(f"Click 2 points to measure '{label_input}'.")
         
+        # --- FIX APPLIED HERE: Using Base64 ---
+        bg_image_b64 = pil_to_base64(st.session_state.display_pil)
+        
         canvas_result = st_canvas(
             fill_color="lime", stroke_width=2,
-            background_image=st.session_state.display_pil,
+            background_image=bg_image_b64, # Using the base64 string
             update_streamlit=True,
             height=int(st.session_state.display_pil.height),
             width=DISPLAY_WIDTH,
