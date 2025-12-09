@@ -34,7 +34,7 @@ pip install -r requirements.txt
 Bash
 
 streamlit run app.py
-
+```
 
 🖥️ Usage Workflow
 Upload: Drag & drop a lateral cephalogram (JPG/PNG).
