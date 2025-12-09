@@ -24,45 +24,33 @@
 ```bash
 git clone [https://github.com/your-username/osa-analyzer.git](https://github.com/your-username/osa-analyzer.git)
 cd osa-analyzer
+```
 
-2. Install Dependencies
-Bash
-
+### 2. Install Dependencies
+```bash
 pip install -r requirements.txt
+```
 
-3. Run the App
-Bash
-
+#### 3. Run the App
+```bash
 streamlit run app.py
 ```
 
-🖥️ Usage Workflow
-Upload: Drag & drop a lateral cephalogram (JPG/PNG).
+## 🖥️ Usage Workflow
+- Upload: Drag & drop a lateral cephalogram (JPG/PNG).
+- Verify: The AI will auto-mark landmarks. Review the red dots.
+- Calibrate: Select the "Calibrate Ruler" tool and click two points on the X-ray's ruler (10mm).
+- Analyze:
+a. Click "Final Analyze" to get the OSA prediction.
+b. Report: Enter patient details and download the PDF Report.
 
-Verify: The AI will auto-mark landmarks. Review the red dots.
+## 🏗️ Tech Stack
+- Frontend: Streamlit
+- Deep Learning: PyTorch (Fusion ResNet/HRNet)
+- Image Processing: OpenCV, Pillow, Scikit-Image
+- Reporting: FPDF
 
-Calibrate: Select the "Calibrate Ruler" tool and click two points on the X-ray's ruler (10mm).
-
-Analyze:
-
-Click "Measure Distance" to check Airway Space (PAS) or Hyoid Position (MPH).
-
-Click "Final Analyze" to get the OSA prediction.
-
-Report: Enter patient details and download the PDF Report.
-
-🏗️ Tech Stack
-Frontend: Streamlit
-
-Deep Learning: PyTorch (Fusion ResNet/HRNet)
-
-Image Processing: OpenCV, Pillow, Scikit-Image
-
-Reporting: FPDF
-
-👥 Credits
+## 👥 Credits
 Developed with ❤️ by Sankalp Indish
-
-LinkedIn: Sankalp Indish
-
+LinkedIn: (Sankalp Indish) https://www.linkedin.com/in/sankalp-indish/
 Research Partner: Vaidehi Mohod
