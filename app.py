@@ -1,4 +1,12 @@
 import streamlit as st
+import streamlit.elements.image as st_image
+from streamlit.elements.lib.image_utils import image_to_url
+
+# --- PATCH: Fix for streamlit-drawable-canvas 1.34+ ---
+if not hasattr(st_image, 'image_to_url'):
+    st_image.image_to_url = image_to_url
+# --------------------------------------------------------
+
 import numpy as np
 import os
 import pandas as pd
@@ -19,6 +27,7 @@ from src.pyceph.Landmarks import Landmarks
 st.set_page_config(layout="wide", page_title="OSA Analyzer", page_icon="🦷")
 
 # Constants
+MAX_CANVAS_SIZE = (2256, 2304) 
 DISPLAY_WIDTH = 800          
 
 st.markdown("""
@@ -92,7 +101,7 @@ keys = [
     'uploaded_file_bytes', 'high_res_pil', 'display_pil', 'scale_ratio',
     'ai_landmarks', 'px_per_mm', 'measurements', 'click_history', 
     'ruler_points', 'temp_angle_points', 'canvas_key', 'final_result',
-    'is_calibrated', 'pdf_bytes', 'original_dims' 
+    'is_calibrated', 'pdf_bytes' 
 ]
 for k in keys:
     if k not in st.session_state:
@@ -126,51 +135,52 @@ DIAGNOSTIC_NORMS = {
 def get_model():
     return load_model(os.path.join("model", "12-26-22.pkl.gz"))
 
-# --- RENAMED TO FORCE CACHE UPDATE ---
 @st.cache_data
-def process_image_v2(file_bytes):
-    """
-    Scientific Processing with Padding and Labeling.
-    Renamed to V2 to bust Streamlit cache and ensure dots are drawn.
-    """
+def process_and_cache_images(file_bytes):
+    """Scientific Processing with Padding and Labeling."""
     model = get_model()
-    if not model: return None, None, None, None, None
+    if not model: return None, None, None, None
     
     # A. Inference
     raw_img, raw_marks = process_image(BytesIO(file_bytes), model)
     h_raw, w_raw = raw_img.shape[:2]
     
-    # B. Load Original and Ensure RGB
-    original_pil = Image.open(BytesIO(file_bytes)).convert('RGB')
+    # B. High-Res Layer (Padded)
+    img_uint8 = (raw_img * 255).astype(np.uint8)
+    pil_raw = Image.fromarray(img_uint8)
+    high_res_pil = ImageOps.pad(pil_raw, MAX_CANVAS_SIZE, color="black", centering=(0.5, 0.5))
     
-    # C. Burn dots into High-Res (Original)
-    # This creates the layer used for BOTH Download AND Display
-    high_res_pil = original_pil.copy()
+    # Calculate scale/offset
+    scale_factor = min(MAX_CANVAS_SIZE[0]/w_raw, MAX_CANVAS_SIZE[1]/h_raw)
+    new_w = int(w_raw * scale_factor)
+    new_h = int(h_raw * scale_factor)
+    offset_x = (MAX_CANVAS_SIZE[0] - new_w) // 2
+    offset_y = (MAX_CANVAS_SIZE[1] - new_h) // 2
+    
+    high_res_marks = []
+    for (x, y) in raw_marks:
+        nx = int(x * scale_factor) + offset_x
+        ny = int(y * scale_factor) + offset_y
+        high_res_marks.append((nx, ny))
+
+    # Burn dots for Download/PDF
     draw_hr = ImageDraw.Draw(high_res_pil)
-    
-    # Dynamic font size
-    try: font_hr = ImageFont.truetype("arial.ttf", int(h_raw/50))
+    try: font_hr = ImageFont.truetype("arial.ttf", 40)
     except: font_hr = None
-    
-    for i, (hx, hy) in enumerate(raw_marks):
-        # Dynamic radius based on image size
-        r = int(h_raw * 0.005)
-        if r < 4: r = 4 # Minimum size
-        
+    for i, (hx, hy) in enumerate(high_res_marks):
+        r = 10
         draw_hr.ellipse((hx-r, hy-r, hx+r, hy+r), fill="red", outline="white")
         try: name = str(Landmarks(i)).replace("Landmarks.", "")[:3].title()
         except: name = str(i)
-        draw_hr.text((hx+r, hy-r), name, fill="yellow", font=font_hr)
+        draw_hr.text((hx+15, hy-15), name, fill="yellow", font=font_hr)
 
-    # D. Create Display Layer
-    # We resize the MARKED image (high_res_pil) for the UI
-    aspect = h_raw / w_raw
+    # C. Display Layer
+    aspect = MAX_CANVAS_SIZE[1] / MAX_CANVAS_SIZE[0]
     display_h = int(DISPLAY_WIDTH * aspect)
     display_pil = high_res_pil.resize((DISPLAY_WIDTH, display_h), Image.LANCZOS)
+    scale_ratio = MAX_CANVAS_SIZE[0] / DISPLAY_WIDTH
     
-    scale_ratio = w_raw / DISPLAY_WIDTH
-    
-    return high_res_pil, display_pil, scale_ratio, raw_marks, (w_raw, h_raw)
+    return high_res_pil, display_pil, scale_ratio, high_res_marks
 
 def dist_euclidean(p1, p2):
     return np.sqrt((p2[0]-p1[0])**2 + (p2[1]-p1[1])**2)
@@ -292,6 +302,7 @@ with st.expander("ℹ️ Instructions & Help"):
     2. **Calibrate:** Use the 'Calibrate Ruler' tool to click two points on the image's ruler (usually 10mm). This is auto-calibrated to 11.53 px/mm by default. You can use that and adjust manually as per need.
     3. **Measure:** Use 'Measure Distance' and/or 'Measure Angle' to analyze anatomy. Make sure that you label S-N, Po-Or, PAS, Pharynx Length, MP-H, etc. as per the norms table.
     4. **Report:** Click 'Analyze' to get an OSA prediction and download a PDF report.
+
     """)
 
 # --- ROW 1: UPLOADS ---
@@ -314,22 +325,19 @@ if uploaded:
         st.session_state.pdf_bytes = None
         
         with st.spinner("Processing..."):
-            # CALLING V2 FUNCTION TO BUST CACHE
-            hr, disp, ratio, lms, dims = process_image_v2(uploaded.getvalue())
+            hr, disp, ratio, lms = process_and_cache_images(uploaded.getvalue())
             st.session_state.high_res_pil = hr
             st.session_state.display_pil = disp
             st.session_state.scale_ratio = ratio
             st.session_state.ai_landmarks = lms
-            st.session_state.original_dims = dims
             st.rerun()
 
 # --- WORKSPACE ---
 if st.session_state.display_pil:
-    w, h = st.session_state.original_dims
     st.markdown(f"""
     <div class="status-box">
         ✅ <b>Auto-Marking Complete</b><br>
-        Scientific Resize: Anatomy preserved. [{w}px x {h}px]<br>
+        Scientific Resize: Anatomy preserved. [2256px x 2304px]<br>
     </div>
     """, unsafe_allow_html=True)
     
@@ -421,10 +429,9 @@ if st.session_state.display_pil:
         if "Calibrate" in mode: st.info("Click 2 points on the ruler.")
         elif "Distance" in mode: st.info(f"Click 2 points to measure '{label_input}'.")
         
-        # --- STANDARD CANVAS (Streamlit 1.35.0 compatible) ---
         canvas_result = st_canvas(
             fill_color="lime", stroke_width=2,
-            background_image=st.session_state.display_pil, 
+            background_image=st.session_state.display_pil,
             update_streamlit=True,
             height=int(st.session_state.display_pil.height),
             width=DISPLAY_WIDTH,
