@@ -1,13 +1,4 @@
 import streamlit as st
-import streamlit.elements.image as st_image
-from streamlit.elements.lib.image_utils import image_to_url
-
-# --- PATCH: Compatibility for Streamlit 1.35+ ---
-# This ensures the canvas library can find the image processing function
-if not hasattr(st_image, 'image_to_url'):
-    st_image.image_to_url = image_to_url
-# --------------------------------------------------------
-
 import numpy as np
 import os
 import pandas as pd
@@ -102,7 +93,7 @@ keys = [
     'uploaded_file_bytes', 'high_res_pil', 'display_pil', 'scale_ratio',
     'ai_landmarks', 'px_per_mm', 'measurements', 'click_history', 
     'ruler_points', 'temp_angle_points', 'canvas_key', 'final_result',
-    'is_calibrated', 'pdf_bytes', 'original_dims'
+    'is_calibrated', 'pdf_bytes', 'original_dims' 
 ]
 for k in keys:
     if k not in st.session_state:
@@ -140,7 +131,7 @@ def get_model():
 def process_and_cache_images(file_bytes):
     """Scientific Processing with Padding and Labeling."""
     model = get_model()
-    if not model: return None, None, None, None
+    if not model: return None, None, None, None, None
     
     # A. Inference
     raw_img, raw_marks = process_image(BytesIO(file_bytes), model)
@@ -431,10 +422,10 @@ if st.session_state.display_pil:
         if "Calibrate" in mode: st.info("Click 2 points on the ruler.")
         elif "Distance" in mode: st.info(f"Click 2 points to measure '{label_input}'.")
         
-        # --- REVERTED TO PIL IMAGE (Requires Streamlit 1.35.0) ---
+        # --- FIXED: Use PIL Image (Works with Streamlit 1.35.0) ---
         canvas_result = st_canvas(
             fill_color="lime", stroke_width=2,
-            background_image=st.session_state.display_pil, # PASS PIL IMAGE
+            background_image=st.session_state.display_pil, # Passing PIL Image Object
             update_streamlit=True,
             height=int(st.session_state.display_pil.height),
             width=DISPLAY_WIDTH,
