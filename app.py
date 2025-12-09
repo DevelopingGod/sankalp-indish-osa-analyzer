@@ -19,7 +19,6 @@ from src.pyceph.Landmarks import Landmarks
 st.set_page_config(layout="wide", page_title="OSA Analyzer", page_icon="🦷")
 
 # Constants
-MAX_CANVAS_SIZE = (2256, 2304) 
 DISPLAY_WIDTH = 800          
 
 st.markdown("""
@@ -137,40 +136,39 @@ def process_and_cache_images(file_bytes):
     raw_img, raw_marks = process_image(BytesIO(file_bytes), model)
     h_raw, w_raw = raw_img.shape[:2]
     
-    # B. High-Res Layer (Padded)
-    img_uint8 = (raw_img * 255).astype(np.uint8)
-    pil_raw = Image.fromarray(img_uint8)
-    high_res_pil = ImageOps.pad(pil_raw, MAX_CANVAS_SIZE, color="black", centering=(0.5, 0.5))
+    # B. Load Original for Processing
+    original_pil = Image.open(BytesIO(file_bytes)).convert('RGB')
     
-    # Calculate scale/offset
-    scale_factor = min(MAX_CANVAS_SIZE[0]/w_raw, MAX_CANVAS_SIZE[1]/h_raw)
-    new_w = int(w_raw * scale_factor)
-    new_h = int(h_raw * scale_factor)
-    offset_x = (MAX_CANVAS_SIZE[0] - new_w) // 2
-    offset_y = (MAX_CANVAS_SIZE[1] - new_h) // 2
+    # Calculate scale/offset (Native Resolution Mapping)
+    # The process_image returns coordinates scaled to the image size it processed
+    # But here we are dealing with Native Resolution directly
     
-    high_res_marks = []
-    for (x, y) in raw_marks:
-        nx = int(x * scale_factor) + offset_x
-        ny = int(y * scale_factor) + offset_y
-        high_res_marks.append((nx, ny))
+    # Since process_image already returns landmarks mapped to the input image size,
+    # and we passed the raw bytes, raw_marks are already in native coordinates if using the corrected inference.py
+    
+    # However, to be safe and robust:
+    high_res_marks = raw_marks # These should be (x, y) tuples
 
-    # Burn dots for Download/PDF
+    # C. Burn dots into High-Res (Original) for Download
+    high_res_pil = original_pil.copy()
     draw_hr = ImageDraw.Draw(high_res_pil)
-    try: font_hr = ImageFont.truetype("arial.ttf", 40)
+    try: font_hr = ImageFont.truetype("arial.ttf", int(h_raw/50))
     except: font_hr = None
+    
     for i, (hx, hy) in enumerate(high_res_marks):
-        r = 10
+        r = int(h_raw * 0.005) # Dynamic radius
+        if r < 3: r = 3
         draw_hr.ellipse((hx-r, hy-r, hx+r, hy+r), fill="red", outline="white")
         try: name = str(Landmarks(i)).replace("Landmarks.", "")[:3].title()
         except: name = str(i)
-        draw_hr.text((hx+15, hy-15), name, fill="yellow", font=font_hr)
+        draw_hr.text((hx+r, hy-r), name, fill="yellow", font=font_hr)
 
-    # C. Display Layer
-    aspect = MAX_CANVAS_SIZE[1] / MAX_CANVAS_SIZE[0]
+    # D. Create Display Layer
+    # --- FIX: USE HIGH_RES_PIL (With Dots) ---
+    aspect = h_raw / w_raw
     display_h = int(DISPLAY_WIDTH * aspect)
     display_pil = high_res_pil.resize((DISPLAY_WIDTH, display_h), Image.LANCZOS)
-    scale_ratio = MAX_CANVAS_SIZE[0] / DISPLAY_WIDTH
+    scale_ratio = w_raw / DISPLAY_WIDTH
     
     return high_res_pil, display_pil, scale_ratio, high_res_marks, (w_raw, h_raw)
 
@@ -286,6 +284,9 @@ def generate_pdf_report(image_pil, measurements, prediction, user_info):
 # 4. MAIN UI LAYOUT
 # ==========================================
 st.title("🦷 OSA [Obstructive Sleep Apnea] Analyzer")
+
+# Debugging Info (Remove in production if needed, but useful now)
+# st.sidebar.caption(f"Streamlit Version: {st.__version__}")
 
 with st.expander("ℹ️ Instructions & Help"):
     st.markdown("""
@@ -422,10 +423,10 @@ if st.session_state.display_pil:
         if "Calibrate" in mode: st.info("Click 2 points on the ruler.")
         elif "Distance" in mode: st.info(f"Click 2 points to measure '{label_input}'.")
         
-        # --- FIXED: Use PIL Image (Works with Streamlit 1.35.0) ---
+        # We pass the PIL image directly. Since Streamlit 1.35 is compatible, this is safe.
         canvas_result = st_canvas(
             fill_color="lime", stroke_width=2,
-            background_image=st.session_state.display_pil, # Passing PIL Image Object
+            background_image=st.session_state.display_pil, 
             update_streamlit=True,
             height=int(st.session_state.display_pil.height),
             width=DISPLAY_WIDTH,
