@@ -1,11 +1,12 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 streamlit==1.35.0
-streamlit-drawable-canvas
-numpy
+streamlit-drawable-canvas==0.9.3
+numpy<2.0.0
 pandas
 Pillow
 matplotlib
 scikit-image
 fpdf
+opencv-python-headless
 torch
 torchvision
