@@ -51,6 +51,6 @@ b. Report: Enter patient details and download the PDF Report.
 - Reporting: FPDF
 
 ## 👥 Credits
-Developed with ❤️ by Sankalp Indish
+- Developed with ❤️ by Sankalp Indish
 LinkedIn: (Sankalp Indish) https://www.linkedin.com/in/sankalp-indish/
-Research Partner: Vaidehi Mohod
+- Research Partner: Vaidehi Mohod
