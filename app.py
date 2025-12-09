@@ -1,4 +1,13 @@
 import streamlit as st
+import streamlit.elements.image as st_image
+from streamlit.elements.lib.image_utils import image_to_url
+
+# --- PATCH: Compatibility for Streamlit 1.35+ ---
+# This ensures the canvas library can find the image processing function
+if not hasattr(st_image, 'image_to_url'):
+    st_image.image_to_url = image_to_url
+# --------------------------------------------------------
+
 import numpy as np
 import os
 import pandas as pd
@@ -8,7 +17,6 @@ from streamlit_drawable_canvas import st_canvas
 from fpdf import FPDF
 import tempfile
 import datetime
-import base64  # Added for the fix
 
 # Project Imports
 from src.pyceph.inference import load_model, process_image
@@ -88,26 +96,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. HELPER FUNCTIONS (The Fix)
-# ==========================================
-def pil_to_base64(image):
-    """
-    Converts a PIL Image to a base64 string.
-    This bypasses streamlit's internal image_to_url which causes version conflicts.
-    """
-    buffered = BytesIO()
-    image.save(buffered, format="PNG")
-    img_str = base64.b64encode(buffered.getvalue()).decode()
-    return f"data:image/png;base64,{img_str}"
-
-# ==========================================
-# 3. STATE MANAGEMENT
+# 2. STATE MANAGEMENT
 # ==========================================
 keys = [
     'uploaded_file_bytes', 'high_res_pil', 'display_pil', 'scale_ratio',
     'ai_landmarks', 'px_per_mm', 'measurements', 'click_history', 
     'ruler_points', 'temp_angle_points', 'canvas_key', 'final_result',
-    'is_calibrated', 'pdf_bytes', 'original_dims' # Added original_dims
+    'is_calibrated', 'pdf_bytes', 'original_dims'
 ]
 for k in keys:
     if k not in st.session_state:
@@ -121,7 +116,7 @@ for k in keys:
         else: st.session_state[k] = None
 
 # ==========================================
-# 4. CORE LOGIC
+# 3. CORE LOGIC
 # ==========================================
 DIAGNOSTIC_NORMS = {
     "Parameter": [
@@ -145,7 +140,7 @@ def get_model():
 def process_and_cache_images(file_bytes):
     """Scientific Processing with Padding and Labeling."""
     model = get_model()
-    if not model: return None, None, None, None, None
+    if not model: return None, None, None, None
     
     # A. Inference
     raw_img, raw_marks = process_image(BytesIO(file_bytes), model)
@@ -297,7 +292,7 @@ def generate_pdf_report(image_pil, measurements, prediction, user_info):
     return pdf.output(dest='S').encode('latin-1', errors='replace')
 
 # ==========================================
-# 5. MAIN UI LAYOUT
+# 4. MAIN UI LAYOUT
 # ==========================================
 st.title("🦷 OSA [Obstructive Sleep Apnea] Analyzer")
 
@@ -340,10 +335,11 @@ if uploaded:
 
 # --- WORKSPACE ---
 if st.session_state.display_pil:
+    w, h = st.session_state.original_dims
     st.markdown(f"""
     <div class="status-box">
         ✅ <b>Auto-Marking Complete</b><br>
-        Scientific Resize: Anatomy preserved. [2256px x 2304px]<br>
+        Scientific Resize: Anatomy preserved. [{w}px x {h}px]<br>
     </div>
     """, unsafe_allow_html=True)
     
@@ -435,12 +431,10 @@ if st.session_state.display_pil:
         if "Calibrate" in mode: st.info("Click 2 points on the ruler.")
         elif "Distance" in mode: st.info(f"Click 2 points to measure '{label_input}'.")
         
-        # --- FIX APPLIED HERE: Using Base64 ---
-        bg_image_b64 = pil_to_base64(st.session_state.display_pil)
-        
+        # --- REVERTED TO PIL IMAGE (Requires Streamlit 1.35.0) ---
         canvas_result = st_canvas(
             fill_color="lime", stroke_width=2,
-            background_image=bg_image_b64, # Using the base64 string
+            background_image=st.session_state.display_pil, # PASS PIL IMAGE
             update_streamlit=True,
             height=int(st.session_state.display_pil.height),
             width=DISPLAY_WIDTH,
