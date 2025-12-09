@@ -19,7 +19,6 @@ from src.pyceph.Landmarks import Landmarks
 st.set_page_config(layout="wide", page_title="OSA Analyzer", page_icon="🦷")
 
 # Constants
-MAX_CANVAS_SIZE = (2256, 2304) 
 DISPLAY_WIDTH = 800          
 
 st.markdown("""
@@ -127,9 +126,13 @@ DIAGNOSTIC_NORMS = {
 def get_model():
     return load_model(os.path.join("model", "12-26-22.pkl.gz"))
 
+# --- RENAMED TO FORCE CACHE UPDATE ---
 @st.cache_data
-def process_and_cache_images(file_bytes):
-    """Scientific Processing with Padding and Labeling."""
+def process_image_v2(file_bytes):
+    """
+    Scientific Processing with Padding and Labeling.
+    Renamed to V2 to bust Streamlit cache and ensure dots are drawn.
+    """
     model = get_model()
     if not model: return None, None, None, None, None
     
@@ -137,42 +140,37 @@ def process_and_cache_images(file_bytes):
     raw_img, raw_marks = process_image(BytesIO(file_bytes), model)
     h_raw, w_raw = raw_img.shape[:2]
     
-    # B. High-Res Layer (Padded)
-    img_uint8 = (raw_img * 255).astype(np.uint8)
-    pil_raw = Image.fromarray(img_uint8)
-    high_res_pil = ImageOps.pad(pil_raw, MAX_CANVAS_SIZE, color="black", centering=(0.5, 0.5))
+    # B. Load Original and Ensure RGB
+    original_pil = Image.open(BytesIO(file_bytes)).convert('RGB')
     
-    # Calculate scale/offset
-    scale_factor = min(MAX_CANVAS_SIZE[0]/w_raw, MAX_CANVAS_SIZE[1]/h_raw)
-    new_w = int(w_raw * scale_factor)
-    new_h = int(h_raw * scale_factor)
-    offset_x = (MAX_CANVAS_SIZE[0] - new_w) // 2
-    offset_y = (MAX_CANVAS_SIZE[1] - new_h) // 2
-    
-    high_res_marks = []
-    for (x, y) in raw_marks:
-        nx = int(x * scale_factor) + offset_x
-        ny = int(y * scale_factor) + offset_y
-        high_res_marks.append((nx, ny))
-
-    # Burn dots for Download/PDF
+    # C. Burn dots into High-Res (Original)
+    # This creates the layer used for BOTH Download AND Display
+    high_res_pil = original_pil.copy()
     draw_hr = ImageDraw.Draw(high_res_pil)
-    try: font_hr = ImageFont.truetype("arial.ttf", 40)
+    
+    # Dynamic font size
+    try: font_hr = ImageFont.truetype("arial.ttf", int(h_raw/50))
     except: font_hr = None
-    for i, (hx, hy) in enumerate(high_res_marks):
-        r = 10
+    
+    for i, (hx, hy) in enumerate(raw_marks):
+        # Dynamic radius based on image size
+        r = int(h_raw * 0.005)
+        if r < 4: r = 4 # Minimum size
+        
         draw_hr.ellipse((hx-r, hy-r, hx+r, hy+r), fill="red", outline="white")
         try: name = str(Landmarks(i)).replace("Landmarks.", "")[:3].title()
         except: name = str(i)
-        draw_hr.text((hx+15, hy-15), name, fill="yellow", font=font_hr)
+        draw_hr.text((hx+r, hy-r), name, fill="yellow", font=font_hr)
 
-    # C. Display Layer
-    aspect = MAX_CANVAS_SIZE[1] / MAX_CANVAS_SIZE[0]
+    # D. Create Display Layer
+    # We resize the MARKED image (high_res_pil) for the UI
+    aspect = h_raw / w_raw
     display_h = int(DISPLAY_WIDTH * aspect)
     display_pil = high_res_pil.resize((DISPLAY_WIDTH, display_h), Image.LANCZOS)
-    scale_ratio = MAX_CANVAS_SIZE[0] / DISPLAY_WIDTH
     
-    return high_res_pil, display_pil, scale_ratio, high_res_marks, (w_raw, h_raw)
+    scale_ratio = w_raw / DISPLAY_WIDTH
+    
+    return high_res_pil, display_pil, scale_ratio, raw_marks, (w_raw, h_raw)
 
 def dist_euclidean(p1, p2):
     return np.sqrt((p2[0]-p1[0])**2 + (p2[1]-p1[1])**2)
@@ -316,7 +314,8 @@ if uploaded:
         st.session_state.pdf_bytes = None
         
         with st.spinner("Processing..."):
-            hr, disp, ratio, lms, dims = process_and_cache_images(uploaded.getvalue())
+            # CALLING V2 FUNCTION TO BUST CACHE
+            hr, disp, ratio, lms, dims = process_image_v2(uploaded.getvalue())
             st.session_state.high_res_pil = hr
             st.session_state.display_pil = disp
             st.session_state.scale_ratio = ratio
@@ -422,9 +421,10 @@ if st.session_state.display_pil:
         if "Calibrate" in mode: st.info("Click 2 points on the ruler.")
         elif "Distance" in mode: st.info(f"Click 2 points to measure '{label_input}'.")
         
+        # --- STANDARD CANVAS (Streamlit 1.35.0 compatible) ---
         canvas_result = st_canvas(
             fill_color="lime", stroke_width=2,
-            background_image=st.session_state.display_pil,
+            background_image=st.session_state.display_pil, 
             update_streamlit=True,
             height=int(st.session_state.display_pil.height),
             width=DISPLAY_WIDTH,
